@@ -1,54 +1,62 @@
+import os
+import jwt # <-- NOVA IMPORTAÇÃO
+import datetime # <-- NOVA IMPORTAÇÃO
+from functools import wraps # <-- NOVA IMPORTAÇÃO
 from flask import Flask, request, jsonify # type: ignore
-from flask_cors import CORS, cross_origin # type: ignore
+from flask_cors import CORS # type: ignore
 import psycopg2 # type: ignore
+from dotenv import load_dotenv # type: ignore
 
 app = Flask(__name__)
-CORS(app)
+
+# Liberando o CORS globalmente para todas as rotas e métodos (GET, POST, PUT, DELETE)
+CORS(app, resources={r"/api/*": {"origins": "*"}})
+
+
+app.config['SECRET_KEY'] = os.getenv('JWT_SECRET', 'chave-seguranca-padrao')
 
 DB_CONFIG = {
-    'dbname': 'getgym_db',
-    'user': 'postgres',
-    'password': 'theu1', 
-    'host': 'localhost',
-    'port': '5432'
+    'dbname': os.getenv('DB_NAME'),
+    'user': os.getenv('DB_USER'),
+    'password': os.getenv('DB_PASSWORD'), 
+    'host': os.getenv('DB_HOST'),
+    'port': os.getenv('DB_PORT')
 }
 
-@app.route('/api/auth/financeiro', methods=['POST', 'OPTIONS'])
-@cross_origin()
+@app.route('/api/auth/financeiro', methods=['POST'])
 def auth_financeiro():
-    if request.method == 'OPTIONS': return jsonify({'status': 'ok'}), 200
     data = request.get_json()
     try:
         conn = psycopg2.connect(**DB_CONFIG)
         cursor = conn.cursor()
-        cursor.execute("SELECT nome FROM gerentes WHERE pin_acesso = %s;", (data.get('pin'),))
+        
+        # Agora buscamos também o ID do gerente para colocar no crachá
+        cursor.execute("SELECT id, nome FROM gerentes WHERE pin_acesso = %s;", (data.get('pin'),))
         manager = cursor.fetchone()
         cursor.close()
         conn.close()
-        if manager: return jsonify({'status': 'sucesso', 'nome': manager[0]}), 200
+
+        if manager:
+            # O PIN ESTÁ CORRETO! Vamos fabricar o crachá (Token JWT)
+            # Ele guarda quem é o gerente e tem uma validade de 2 horas
+            token = jwt.encode({
+                'id': manager[0],
+                'nome': manager[1],
+                'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=2)
+            }, app.config['SECRET_KEY'], algorithm="HS256")
+
+            # Entregamos o crachá na resposta
+            return jsonify({
+                'status': 'sucesso', 
+                'nome': manager[1],
+                'token': token 
+            }), 200
+            
         return jsonify({'status': 'erro', 'mensagem': 'PIN incorreto'}), 401
     except Exception as e:
         return jsonify({'status': 'erro', 'mensagem': str(e)}), 500
 
-@app.route('/api/matriculas', methods=['POST', 'OPTIONS'])
-@cross_origin()
-def nova_matricula():
-    if request.method == 'OPTIONS': return jsonify({'status': 'ok'}), 200
-    dados = request.get_json()
-    try:
-        conn = psycopg2.connect(**DB_CONFIG)
-        cursor = conn.cursor()
-        query = "INSERT INTO alunos (nome, telefone, unidade, plano, data_matricula) VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP)"
-        cursor.execute(query, (dados.get('nome'), dados.get('telefone'), dados.get('unidade'), dados.get('plano')))
-        conn.commit()
-        cursor.close()
-        conn.close()
-        return jsonify({'status': 'sucesso', 'mensagem': 'Aluno cadastrado!'}), 201
-    except Exception as e:
-        return jsonify({'status': 'erro', 'mensagem': str(e)}), 500
-
 @app.route('/api/alunos', methods=['GET'])
-@cross_origin()
 def listar_alunos():
     try:
         conn = psycopg2.connect(**DB_CONFIG)
@@ -63,7 +71,6 @@ def listar_alunos():
         return jsonify({'status': 'erro', 'mensagem': str(e)}), 500
 
 @app.route('/api/dashboard/visao-geral', methods=['GET'])
-@cross_origin()
 def visao_geral():
     try:
         conn = psycopg2.connect(**DB_CONFIG)
@@ -103,10 +110,30 @@ def visao_geral():
     except Exception as e:
         return jsonify({'status': 'erro', 'mensagem': str(e)}), 500
 
-@app.route('/api/financeiro/despesas', methods=['POST', 'OPTIONS'])
-@cross_origin()
+@app.route('/api/financeiro/despesas/<int:id>', methods=['PUT', 'DELETE'])
+def gerenciar_despesa(id):
+    try:
+        conn = psycopg2.connect(**DB_CONFIG)
+        cursor = conn.cursor()
+
+        if request.method == 'DELETE':
+            cursor.execute("DELETE FROM despesas WHERE id = %s", (id,))
+        elif request.method == 'PUT':
+            dados = request.get_json()
+            if 'status' in dados:
+                cursor.execute("UPDATE despesas SET status = %s WHERE id = %s", (dados['status'], id))
+            elif 'valor' in dados:
+                cursor.execute("UPDATE despesas SET valor = %s WHERE id = %s", (dados['valor'], id))
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return jsonify({'status': 'sucesso'}), 200
+    except Exception as e:
+        return jsonify({'status': 'erro', 'mensagem': str(e)}), 500
+
+@app.route('/api/financeiro/despesas', methods=['POST'])
 def nova_despesa():
-    if request.method == 'OPTIONS': return jsonify({'status': 'ok'}), 200
     dados = request.get_json()
     try:
         conn = psycopg2.connect(**DB_CONFIG)
@@ -121,16 +148,18 @@ def nova_despesa():
         return jsonify({'status': 'erro', 'mensagem': str(e)}), 500
     
 @app.route('/api/profissionais', methods=['GET'])
-@cross_origin()
 def listar_profissionais():
     unidade = request.args.get('unidade')
     try:
         conn = psycopg2.connect(**DB_CONFIG)
         cursor = conn.cursor()
+        
         query = "SELECT nome, cargo, TO_CHAR(horario_inicio, 'HH24:MI'), TO_CHAR(horario_fim, 'HH24:MI'), dias_semana FROM profissionais WHERE unidade = %s"
         cursor.execute(query, (unidade,))
         equipe = cursor.fetchall()
+        
         lista = [{'nome': e[0], 'cargo': e[1], 'inicio': e[2], 'fim': e[3], 'dias': e[4]} for e in equipe]
+        
         cursor.close()
         conn.close()
         return jsonify(lista), 200
@@ -138,18 +167,19 @@ def listar_profissionais():
         return jsonify({'status': 'erro', 'mensagem': str(e)}), 500
 
 @app.route('/api/financeiro/dados', methods=['GET'])
-@cross_origin()
 def dados_financeiros():
     unidade = request.args.get('unidade')
     try:
         conn = psycopg2.connect(**DB_CONFIG)
         cursor = conn.cursor()
 
+        # 1. Busca as despesas cadastradas
         cursor.execute("SELECT id, categoria, TO_CHAR(vencimento, 'DD/MM/YYYY'), valor, status FROM despesas WHERE unidade = %s ORDER BY vencimento ASC;", (unidade,))
         despesas_db = cursor.fetchall()
         lista_despesas = [{'id': d[0], 'categoria': d[1], 'vencimento': d[2], 'valor': float(d[3]), 'status': d[4]} for d in despesas_db]
         total_despesas = sum([d['valor'] for d in lista_despesas if d['status'] != 'Cancelado'])
 
+        # 2. Conta os alunos reais por plano
         cursor.execute("SELECT plano, COUNT(*) FROM alunos WHERE unidade = %s GROUP BY plano;", (unidade,))
         planos_db = cursor.fetchall()
         
@@ -167,11 +197,14 @@ def dados_financeiros():
             distribuicao['semestral'] = round((contagem['semestral'] / total_alunos) * 100)
             distribuicao['mensal'] = 100 - (distribuicao['anual'] + distribuicao['semestral'])
 
+        # 3. Matemática Financeira 100% REAL
+        # Multiplica a quantidade exata de alunos pelo valor de cada plano
         faturamento = (contagem['anual'] * 89.90) + (contagem['semestral'] * 99.90) + (contagem['mensal'] * 119.90)
-        if faturamento < 5000: faturamento = 142500.00 
+        
+        # AQUI FOI REMOVIDO O VALOR FICTÍCIO DE R$ 142.500,00
 
         receita = faturamento - total_despesas
-        inadimplencia = faturamento * 0.034
+        inadimplencia = faturamento * 0.034 # Mantido a taxa de 3.4% sobre o faturamento real
 
         cursor.close()
         conn.close()
