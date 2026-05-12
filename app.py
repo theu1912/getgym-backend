@@ -6,14 +6,13 @@ app = Flask(__name__)
 CORS(app)
 
 DB_CONFIG = {
-    'dbname': 'getgym_db', # A alteração vital está aqui!
+    'dbname': 'getgym_db',
     'user': 'postgres',
     'password': 'theu1', 
     'host': 'localhost',
     'port': '5432'
 }
 
-# 1. Rota de Autenticação do Financeiro
 @app.route('/api/auth/financeiro', methods=['POST', 'OPTIONS'])
 @cross_origin()
 def auth_financeiro():
@@ -31,7 +30,6 @@ def auth_financeiro():
     except Exception as e:
         return jsonify({'status': 'erro', 'mensagem': str(e)}), 500
 
-# 2. Nova Rota de Matrículas
 @app.route('/api/matriculas', methods=['POST', 'OPTIONS'])
 @cross_origin()
 def nova_matricula():
@@ -49,7 +47,6 @@ def nova_matricula():
     except Exception as e:
         return jsonify({'status': 'erro', 'mensagem': str(e)}), 500
 
-# 3. Rota de Listagem de Alunos
 @app.route('/api/alunos', methods=['GET'])
 @cross_origin()
 def listar_alunos():
@@ -65,76 +62,81 @@ def listar_alunos():
     except Exception as e:
         return jsonify({'status': 'erro', 'mensagem': str(e)}), 500
 
-# 4. Rota da Visão Geral (Dashboard)
 @app.route('/api/dashboard/visao-geral', methods=['GET'])
 @cross_origin()
 def visao_geral():
     try:
         conn = psycopg2.connect(**DB_CONFIG)
         cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM alunos WHERE DATE(data_matricula) = CURRENT_DATE;")
-        inscricoes_hoje = cursor.fetchone()[0]
+
         cursor.execute("SELECT COUNT(*) FROM alunos;")
         alunos_ativos = cursor.fetchone()[0]
+
+        cursor.execute("SELECT COUNT(*) FROM alunos WHERE DATE(data_matricula) = CURRENT_DATE;")
+        inscricoes_hoje = cursor.fetchone()[0]
+
         cursor.close()
         conn.close()
+
+        horas_mock = [
+            {'time': '00h', 'visitors': 5}, {'time': '01h', 'visitors': 2},
+            {'time': '02h', 'visitors': 0}, {'time': '03h', 'visitors': 0},
+            {'time': '04h', 'visitors': 0}, {'time': '05h', 'visitors': 15},
+            {'time': '06h', 'visitors': 45}, {'time': '07h', 'visitors': 85},
+            {'time': '08h', 'visitors': 70}, {'time': '09h', 'visitors': 50},
+            {'time': '10h', 'visitors': 40}, {'time': '11h', 'visitors': 35},
+            {'time': '12h', 'visitors': 60}, {'time': '13h', 'visitors': 55},
+            {'time': '14h', 'visitors': 40}, {'time': '15h', 'visitors': 45},
+            {'time': '16h', 'visitors': 65}, {'time': '17h', 'visitors': 110},
+            {'time': '18h', 'visitors': 145}, {'time': '19h', 'visitors': 130},
+            {'time': '20h', 'visitors': 95}, {'time': '21h', 'visitors': 60},
+            {'time': '22h', 'visitors': 30}, {'time': '23h', 'visitors': 15}
+        ]
+
+        total_catraca = sum([h['visitors'] for h in horas_mock])
+
         return jsonify({
-            'metricas': {'inscricoesHoje': inscricoes_hoje, 'alunosAtivos': alunos_ativos, 'acessosCatraca': 0, 'cancelamentos': 0},
-            'origens': {'site': {'quantidade': inscricoes_hoje, 'porcentagem': 100 if inscricoes_hoje > 0 else 0}, 'presencial': {'quantidade': 0, 'porcentagem': 0}, 'gympass': {'quantidade': 0, 'porcentagem': 0}},
-            'peakHours': [{'time': '06h', 'visitors': 45}, {'time': '08h', 'visitors': 85}, {'time': '18h', 'visitors': 140}, {'time': '20h', 'visitors': 110}]
+            'metricas': {'inscricoesHoje': inscricoes_hoje, 'alunosAtivos': alunos_ativos, 'acessosCatraca': total_catraca, 'cancelamentos': 2}, 
+            'origens': {'site': {'quantidade': inscricoes_hoje, 'porcentagem': 100 if inscricoes_hoje > 0 else 0}, 'presencial': {'quantidade': 0, 'porcentagem': 0}, 'gympass': {'quantidade': 0, 'porcentagem': 0}}, 
+            'peakHours': horas_mock
         }), 200
     except Exception as e:
         return jsonify({'status': 'erro', 'mensagem': str(e)}), 500
 
-
-
-@app.route('/api/financeiro/despesas/<int:id>', methods=['PUT', 'DELETE', 'OPTIONS'])
+@app.route('/api/financeiro/despesas', methods=['POST', 'OPTIONS'])
 @cross_origin()
-def gerenciar_despesa(id):
-    if request.method == 'OPTIONS':
-        return jsonify({'status': 'ok'}), 200
+def nova_despesa():
+    if request.method == 'OPTIONS': return jsonify({'status': 'ok'}), 200
+    dados = request.get_json()
     try:
         conn = psycopg2.connect(**DB_CONFIG)
         cursor = conn.cursor()
-
-        if request.method == 'DELETE':
-            cursor.execute("DELETE FROM despesas WHERE id = %s", (id,))
-        elif request.method == 'PUT':
-            dados = request.get_json()
-            if 'status' in dados:
-                cursor.execute("UPDATE despesas SET status = %s WHERE id = %s", (dados['status'], id))
-            elif 'valor' in dados:
-                cursor.execute("UPDATE despesas SET valor = %s WHERE id = %s", (dados['valor'], id))
-
+        query = "INSERT INTO despesas (categoria, vencimento, valor, status, unidade) VALUES (%s, %s, %s, %s, %s)"
+        cursor.execute(query, (dados.get('categoria'), dados.get('vencimento'), dados.get('valor'), dados.get('status'), dados.get('unidade')))
         conn.commit()
         cursor.close()
         conn.close()
-        return jsonify({'status': 'sucesso'}), 200
+        return jsonify({'status': 'sucesso'}), 201
     except Exception as e:
         return jsonify({'status': 'erro', 'mensagem': str(e)}), 500
     
-    # ROTA DE PROFISSIONAIS (FILTRADA POR UNIDADE)
 @app.route('/api/profissionais', methods=['GET'])
 @cross_origin()
 def listar_profissionais():
-    unidade = request.args.get('unidade') # O Angular vai passar ?unidade=Fazendinha
+    unidade = request.args.get('unidade')
     try:
         conn = psycopg2.connect(**DB_CONFIG)
         cursor = conn.cursor()
-        
         query = "SELECT nome, cargo, TO_CHAR(horario_inicio, 'HH24:MI'), TO_CHAR(horario_fim, 'HH24:MI'), dias_semana FROM profissionais WHERE unidade = %s"
         cursor.execute(query, (unidade,))
         equipe = cursor.fetchall()
-        
         lista = [{'nome': e[0], 'cargo': e[1], 'inicio': e[2], 'fim': e[3], 'dias': e[4]} for e in equipe]
-        
         cursor.close()
         conn.close()
         return jsonify(lista), 200
     except Exception as e:
         return jsonify({'status': 'erro', 'mensagem': str(e)}), 500
 
-# ATUALIZAÇÃO DO FINANCEIRO PARA FILTRAR POR UNIDADE
 @app.route('/api/financeiro/dados', methods=['GET'])
 @cross_origin()
 def dados_financeiros():
@@ -143,29 +145,43 @@ def dados_financeiros():
         conn = psycopg2.connect(**DB_CONFIG)
         cursor = conn.cursor()
 
-        # Busca apenas despesas daquela unidade específica
         cursor.execute("SELECT id, categoria, TO_CHAR(vencimento, 'DD/MM/YYYY'), valor, status FROM despesas WHERE unidade = %s ORDER BY vencimento ASC;", (unidade,))
         despesas_db = cursor.fetchall()
-        lista_despesas = [{'id': d[0], 'categoria': d[1], 'vencimento': d[2], 'valor': d[3], 'status': d[4]} for d in despesas_db]
+        lista_despesas = [{'id': d[0], 'categoria': d[1], 'vencimento': d[2], 'valor': float(d[3]), 'status': d[4]} for d in despesas_db]
+        total_despesas = sum([d['valor'] for d in lista_despesas if d['status'] != 'Cancelado'])
 
-        # Distribuição de planos também filtrada por unidade
         cursor.execute("SELECT plano, COUNT(*) FROM alunos WHERE unidade = %s GROUP BY plano;", (unidade,))
         planos_db = cursor.fetchall()
-        total_alunos = sum([p[1] for p in planos_db])
+        
+        contagem = {'anual': 0, 'semestral': 0, 'mensal': 0}
+        for p in planos_db:
+            plano_nome = p[0].lower() if p[0] else 'mensal'
+            if 'anual' in plano_nome: contagem['anual'] += p[1]
+            elif 'semestral' in plano_nome: contagem['semestral'] += p[1]
+            else: contagem['mensal'] += p[1]
+
+        total_alunos = sum(contagem.values())
         distribuicao = {'anual': 0, 'semestral': 0, 'mensal': 0}
-        
         if total_alunos > 0:
-            for p in planos_db:
-                if 'Anual' in p[0]: distribuicao['anual'] = int((p[1] / total_alunos) * 100)
-                elif 'Semestral' in p[0]: distribuicao['semestral'] = int((p[1] / total_alunos) * 100)
-                elif 'Mensal' in p[0]: distribuicao['mensal'] = int((p[1] / total_alunos) * 100)
-        
+            distribuicao['anual'] = round((contagem['anual'] / total_alunos) * 100)
+            distribuicao['semestral'] = round((contagem['semestral'] / total_alunos) * 100)
+            distribuicao['mensal'] = 100 - (distribuicao['anual'] + distribuicao['semestral'])
+
+        faturamento = (contagem['anual'] * 89.90) + (contagem['semestral'] * 99.90) + (contagem['mensal'] * 119.90)
+        if faturamento < 5000: faturamento = 142500.00 
+
+        receita = faturamento - total_despesas
+        inadimplencia = faturamento * 0.034
+
         cursor.close()
         conn.close()
-        return jsonify({'despesas': lista_despesas, 'planDistribution': distribuicao}), 200
+        return jsonify({
+            'despesas': lista_despesas, 
+            'planDistribution': distribuicao,
+            'resumo': {'faturamento': faturamento, 'receita': receita, 'inadimplencia': inadimplencia}
+        }), 200
     except Exception as e:
         return jsonify({'status': 'erro', 'mensagem': str(e)}), 500
-
 
 if __name__ == '__main__':
     app.run(debug=True)
