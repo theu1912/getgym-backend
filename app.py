@@ -7,9 +7,9 @@ from flask_cors import CORS # type: ignore
 import psycopg2 # type: ignore
 from dotenv import load_dotenv # type: ignore
 
+from flask_cors import CORS # type: ignore
+# ...
 app = Flask(__name__)
-
-# Liberando o CORS globalmente para todas as rotas e métodos (GET, POST, PUT, DELETE)
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 
@@ -55,6 +55,39 @@ def auth_financeiro():
         return jsonify({'status': 'erro', 'mensagem': 'PIN incorreto'}), 401
     except Exception as e:
         return jsonify({'status': 'erro', 'mensagem': str(e)}), 500
+
+@app.route('/api/matriculas', methods=['POST'])
+def nova_matricula():
+    try:
+        # 1. Pega os dados enviados pelo Angular
+        # 1. Pega os dados enviados pelo Angular
+        dados = request.get_json()
+        nome = dados.get('nome')
+        telefone = dados.get('telefone')
+        unidade = dados.get('unidade')
+        plano = dados.get('plano')
+
+        # 2. Conecta no PostgreSQL
+        conn = psycopg2.connect(**DB_CONFIG)
+        cursor = conn.cursor()
+
+        # 3. Insere o novo aluno na tabela
+        query = """
+            INSERT INTO alunos (nome, telefone, unidade, plano, status, ultimo_acesso)
+            VALUES (%s, %s, %s, %s, 'Ativo', CURRENT_DATE)
+        """
+        cursor.execute(query, (nome, telefone, unidade, plano))
+        
+        # 4. Salva e fecha a conexão
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        return jsonify({"mensagem": "Matrícula realizada com sucesso!"}), 201
+
+    except Exception as e:
+        print("Erro ao salvar matrícula:", e)
+        return jsonify({"erro": "Falha interna no servidor"}), 500
 
 @app.route('/api/alunos', methods=['GET'])
 def listar_alunos():
