@@ -23,15 +23,7 @@ API REST desenvolvida em Flask + PostgreSQL para o sistema de gestão da GetGym,
 pip install -r requirements.txt
 ```
 
-Crie um `.env` na raiz baseado no `.env.example` do repositório.
 
-```env
-DATABASE_URL=postgresql://usuario:senha@localhost/getgym
-JWT_SECRET_KEY=sua_chave_secreta
-ADMIN_USUARIO=admin
-ADMIN_SENHA=getgym2026
-WEBHOOK_MATRICULA=url_do_make
-```
 
 ```bash
 python app.py
