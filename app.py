@@ -295,6 +295,29 @@ def listar_alunos():
     finally:
         put_conn(conn)
 
+@app.route('/api/alunos/<int:aluno_id>/status', methods=['PUT', 'OPTIONS'])
+def atualizar_status_aluno(aluno_id):
+    if request.method == 'OPTIONS':
+        return '', 204
+    dados = strip_strings(request.get_json() or {})
+    novo_status = dados.get('status', '').strip()
+    if novo_status not in ('Em dia', 'Atrasado', 'Inativo'):
+        return jsonify({'error': 'Status inválido'}), 400
+    conn = get_conn()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            'UPDATE alunos SET status = %s WHERE id = %s',
+            (novo_status, aluno_id)
+        )
+        conn.commit()
+        cursor.close()
+        return jsonify({'success': True}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        put_conn(conn)
+
 # ─────────────────────────────────────────────────────────────────────────────
 # DASHBOARD (público — carrega antes do login)
 # ─────────────────────────────────────────────────────────────────────────────
