@@ -83,6 +83,14 @@ def campos_presentes(data: dict, campos: list):
     """Retorna lista dos campos ausentes ou vazios."""
     return [c for c in campos if not data.get(c)]
 
+def strip_strings(d: dict) -> dict:
+    """Remove espaços e quebras de linha invisíveis de todos os valores string do dict.
+
+    Resolve o bug do Make.com onde filtros 'Equal to' rejeitavam strings com
+    espaço/newline no final vindas do frontend Angular.
+    """
+    return {k: v.strip() if isinstance(v, str) else v for k, v in d.items()}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # SETUP INICIAL — garante coluna unidade e PINs por unidade na tabela gerentes
 # ─────────────────────────────────────────────────────────────────────────────
@@ -135,9 +143,9 @@ def admin_login():
     if request.method == 'OPTIONS':
         return jsonify({'success': True}), 200
 
-    dados = request.get_json() or {}
-    usuario = dados.get('usuario')
-    senha   = dados.get('senha')
+    dados = strip_strings(request.get_json() or {})
+    usuario = dados.get('usuario', '')
+    senha   = dados.get('senha', '')
 
     if usuario == ADMIN_USUARIO and senha == ADMIN_SENHA:
         token = gerar_token({'role': 'admin'})
@@ -154,9 +162,9 @@ def verificar_pin_unidade():
     if request.method == 'OPTIONS':
         return jsonify({'status': 'ok'}), 200
 
-    data = request.get_json() or {}
-    pin     = data.get('pin')
-    unidade = data.get('unidade')
+    data = strip_strings(request.get_json() or {})
+    pin     = data.get('pin', '')
+    unidade = data.get('unidade', '')
 
     if not pin or not unidade:
         return jsonify({'status': 'erro', 'mensagem': 'PIN e unidade são obrigatórios'}), 400
@@ -184,8 +192,8 @@ def auth_financeiro():
     if request.method == 'OPTIONS':
         return jsonify({'status': 'ok'}), 200
 
-    data = request.get_json() or {}
-    pin = data.get('pin')
+    data = strip_strings(request.get_json() or {})
+    pin = data.get('pin', '')
     if not pin:
         return jsonify({'status': 'erro', 'mensagem': 'PIN não informado'}), 400
 
@@ -211,7 +219,7 @@ def nova_matricula():
     if request.method == 'OPTIONS':
         return jsonify({'status': 'ok'}), 200
 
-    dados = request.get_json() or {}
+    dados = strip_strings(request.get_json() or {})
     faltando = campos_presentes(dados, ['nome', 'email', 'telefone', 'unidade', 'plano'])
     if faltando:
         return jsonify({'status': 'erro', 'mensagem': f'Campos obrigatórios: {", ".join(faltando)}'}), 400
@@ -238,11 +246,11 @@ def nova_matricula():
     if webhook_url:
         try:
             payload_webhook = {
-                'nome':     dados['nome'].strip(),
-                'email':    dados['email'].strip(),
-                'telefone': dados['telefone'].strip(),
-                'unidade':  dados['unidade'].strip(),
-                'plano':    dados['plano'].strip(),
+                'nome':     dados['nome'],
+                'email':    dados['email'],
+                'telefone': dados['telefone'],
+                'unidade':  dados['unidade'],
+                'plano':    dados['plano'],
                 'data':     datetime.now().isoformat(),
                 'tipo':     'nova_matricula'
             }
@@ -374,7 +382,7 @@ def criar_despesa():
     if request.method == 'OPTIONS':
         return jsonify({'success': True}), 200
 
-    dados = request.get_json() or {}
+    dados = strip_strings(request.get_json() or {})
     faltando = campos_presentes(dados, ['categoria', 'vencimento', 'valor', 'status', 'unidade'])
     if faltando:
         return jsonify({'error': f'Campos obrigatórios: {", ".join(faltando)}'}), 400
@@ -405,7 +413,7 @@ def criar_despesa():
 
 @app.route('/api/despesas/<int:despesa_id>', methods=['PUT'])
 def atualizar_despesa_simples(despesa_id):
-    dados = request.get_json() or {}
+    dados = strip_strings(request.get_json() or {})
     campos_permitidos = {'categoria', 'vencimento', 'valor', 'status'}
     updates = {k: v for k, v in dados.items() if k in campos_permitidos}
     if not updates:
@@ -461,7 +469,7 @@ def nova_despesa():
     if request.method == 'OPTIONS':
         return jsonify({'status': 'ok'}), 200
 
-    dados = request.get_json() or {}
+    dados = strip_strings(request.get_json() or {})
     faltando = campos_presentes(dados, ['categoria', 'vencimento', 'valor', 'status', 'unidade'])
     if faltando:
         return jsonify({'status': 'erro', 'mensagem': f'Campos obrigatórios: {", ".join(faltando)}'}), 400
@@ -493,7 +501,7 @@ def nova_despesa():
 @app.route('/api/financeiro/despesas/<int:despesa_id>', methods=['PUT'])
 @requer_admin
 def atualizar_despesa(despesa_id):
-    dados = request.get_json() or {}
+    dados = strip_strings(request.get_json() or {})
     if not dados:
         return jsonify({'status': 'erro', 'mensagem': 'Nenhum campo para atualizar'}), 400
 
@@ -551,7 +559,7 @@ def excluir_despesa(despesa_id):
 @app.route('/api/financeiro/dados', methods=['GET'])
 @requer_admin
 def dados_financeiros():
-    unidade = request.args.get('unidade')
+    unidade = (request.args.get('unidade') or '').strip()
     if not unidade:
         return jsonify({'status': 'erro', 'mensagem': 'Parâmetro unidade obrigatório'}), 400
 
@@ -614,7 +622,7 @@ def dados_financeiros():
 @app.route('/api/profissionais', methods=['GET'])
 @requer_admin
 def listar_profissionais():
-    unidade = request.args.get('unidade')
+    unidade = (request.args.get('unidade') or '').strip()
     if not unidade:
         return jsonify({'status': 'erro', 'mensagem': 'Parâmetro unidade obrigatório'}), 400
 
